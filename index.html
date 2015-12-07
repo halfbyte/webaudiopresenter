@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="Content-type" content="text/html; charset=utf-8">
+  <title>web audio presenter</title>
+  <link rel="stylesheet" href="css/default.css" media="screen" title="no title" charset="utf-8">
+  <style media="screen">
+    body { background: #ffc; font-family: "Helvetica Neue", Helvetica, sans-serif; color: #020302; }
+    .wrapper {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      top: 0; left: 0;
+    }
+    #scope {
+      position: absolute;
+      top: 10%;
+      left: 10%;
+      width: 80%;
+      height: 80%;
+      z-index: -1;
+      opacity: 0.2;
+      background: transparent;
+
+      overflow: hidden;
+    }
+    #fftscope {
+      position: absolute;
+      top: 10%;
+      left: 10%;
+      width: 80%;
+      height: 80%;
+      z-index: -1;
+      opacity: 0.2;
+      background: transparent;
+      transform: perspective(600px) translateY(-20%) rotateX(45deg) scaleY(2.0);
+      overflow: hidden;
+    }
+    .init .slide {
+      transition: none;
+    }
+    .slide {
+      position: absolute;
+      transform: translate3d(0, 0, 0);
+      top: 0%;
+      left: 0%;
+      width: 100%;
+      height: 100%;
+      z-index: 10;
+      transition: transform 0.5s ease-in-out;
+      box-sizing: border-box;
+      padding: 5%;
+      display: flex;
+      flex-direction: row;
+      justify-content: center;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .slide.text {
+      background: #ffc;
+    }
+
+    .slide.before {
+      transform: translate3d(100%, 0, 0);
+    }
+    .slide.after {
+      transform: translate3d(-100%, 0, 0);
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 10em;
+      vertical-align: middle;
+      margin: 0; padding: 0;
+      font-weight: 200;
+    }
+    h2 {
+      font-size: 4em;
+      margin: 0; padding: 0;
+      font-weight: 200;
+    }
+
+    ul {
+      font-size: 4em;
+    }
+
+
+    code.hljs {
+      padding: 10%;
+      width: 100%;
+      font-size: 2em;
+      box-shadow: 5px 5px 10px rgba(0,0,0,0.2);
+      opacity: 0.8;
+    }
+
+  </style>
+  <script type="text/javascript">
+    "use strict";
+
+
+    addEventListener('load', function() {
+      var wa = new AudioContext()
+      var nullOsc = wa.createOscillator();
+      var nullAmp = wa.createGain();
+      nullAmp.gain.value = 0;
+      nullOsc.connect(nullAmp);
+
+      var analyser = wa.createAnalyser()
+      analyser.fftSize = 512;
+      nullAmp.connect(analyser);
+      nullOsc.start(0);
+      var bufferLength = analyser.frequencyBinCount;
+
+      console.log(bufferLength)
+      var dataArray = new Uint8Array(bufferLength);
+      var binArray = new Uint8Array(bufferLength);
+      console.log(binArray.length)
+      var cvs = document.getElementById('scope');
+      var ctx = cvs.getContext('2d');
+      var fft_cvs = document.getElementById('fftscope');
+      var fft_ctx = fft_cvs.getContext('2d');
+      var fftBarWidth = fft_cvs.width / bufferLength * 0.8;
+      ctx.strokeStyle = "";
+      ctx.lineWidth = 2;
+      console.log("loaded")
+      function draw() {
+        ctx.fillStyle = "rgba(255,255,255,0.5)"
+        ctx.fillRect(0,0,cvs.width, cvs.height);
+        //ctx.clearRect(0,0,cvs.width, cvs.height);
+        //fft_ctx.fillStyle = "rgba(255,255,255,0.1)"
+        fft_ctx.clearRect(0,0,cvs.width, cvs.height);
+        analyser.getByteTimeDomainData(dataArray);
+        analyser.getByteFrequencyData(binArray);
+        var x,y;
+
+        binArray.forEach(function(value, i) {
+          x = i * 1.0 / bufferLength * cvs.width;
+          y = value / 255.0 * cvs.height;
+          fft_ctx.fillStyle = "hsl(" + (i * 1.0 / bufferLength * 360) +", 100%, 50%)";
+          fft_ctx.fillRect(x, fft_cvs.height - y, fftBarWidth, y);
+        })
+        ctx.strokeStyle = "#000";
+        ctx.beginPath();
+        dataArray.forEach(function(value, i) {
+          x = i * 1.0 / bufferLength * cvs.width;
+          y = value / 255.0 * cvs.height;
+
+          if (i === 0) {
+            ctx.moveTo(x,y)
+          } else {
+            ctx.lineTo(x,y)
+          }
+        });
+        ctx.stroke();
+
+        requestAnimationFrame(draw);
+      }
+
+      draw();
+
+      var allSlides = document.querySelectorAll('.slide');
+      var len = allSlides.length;
+      var i;
+      for (i=1;i<len;i++) {
+        addClass(allSlides[i], 'before');
+      }
+      setTimeout(function() { removeClass(document.body, 'init'); }, 0);
+      var current = 0;
+      var old = 0;
+      var codeToExecuteOnButton = null;
+
+      function nextSlide(slide, previous) {
+        if (slide === previous) return;
+        if (previous) {
+          addClass(previous, 'after');
+        }
+        if (slide) {
+          removeClass(slide, 'before');
+          initSlide(slide);
+        }
+      }
+
+      function prevSlide(slide, previous) {
+        console.log(slide, previous)
+        if (slide === previous) return;
+        if (slide && previous) {
+          addClass(previous, 'before');
+        }
+        if (slide) {
+          removeClass(slide, 'after');
+          initSlide(slide);
+        }
+      }
+
+      function initSlide(slide) {
+        var script = slide.querySelector('script');
+        if (script) {
+          var type = script.getAttribute('type');
+          if (type == 'text/wa-autoplay') {
+            eval(script.text);
+            codeToExecuteOnButton = null;
+          } else if (type == 'text/wa-button') {
+            codeToExecuteOnButton = script.text;
+          }
+        } else {
+          codeToExecuteOnButton = null;
+        }
+
+      }
+
+      var huh = 0;
+
+      function addClass(node, klass) {
+        var classes = node.className.split(" ");
+        if (classes.indexOf(klass) === -1) {
+          node.className += (" " + klass);
+        }
+
+      }
+
+      function removeClass(node, klass) {
+        var classes = node.className.split(" ");
+        if (classes.indexOf(klass) !== -1) {
+          var pos = classes.indexOf(klass);
+          console.log(classes, pos, classes.splice())
+          classes.splice(pos, 1);
+          console.log(classes);
+          node.className = classes.join(" ");
+        }
+      }
+
+      document.addEventListener('keydown', function(e) {
+        old = current;
+        if (e.which === 34 || e.which === 39) {
+          current++;
+          if (current >= len) current = old;
+          nextSlide(allSlides[current], allSlides[old])
+        } else if (e.which === 33 || e.which === 37) {
+          current--;
+          if (current < 0) current = old;
+          prevSlide(allSlides[current], allSlides[old])
+
+        } else if (e.which === 13 || e.which === 66) {
+          if (codeToExecuteOnButton) {
+            eval(codeToExecuteOnButton);
+          }
+        } else {
+          console.log("Not Implemented", e.which);
+        }
+      }, false)
+
+
+      initSlide(allSlides[0]);
+
+
+    }, false);
+
+
+  </script>
+
+</head>
+<body class="init">
+  <div class="wrapper">
+    <canvas id="scope" width="800" height=600></canvas>
+    <canvas id="fftscope" width="800" height=600></canvas>
+    <div class="slide text">
+      <div>
+        <h1>The Web Audio Toolbox</h1>
+        <h2>Jan Krutisch for the Web Audio Meetup Berlin Dec 2015</h2>
+      </div>
+    </div>
+    <div class="slide text">
+      <h1>The introduction!</h1>
+    </div>
+    <div class="slide">
+      <pre><code class="js">
+var osc = ac.createOscillator();
+osc.type="sawtooth";
+osc.connect(ac.destination);
+osc.start(0)
+osc.stop(ac.currentTime + 2);
+      </code>
+      <script type="text/wa-button">
+      var osc = wa.createOscillator();
+      osc.type="square";
+      osc.frequency.value = 220;
+      osc.connect(analyser);
+      osc.connect(wa.destination);
+      osc.start(0)
+      osc.stop(wa.currentTime + 2);
+      </script>
+    </div>
+    <div class="slide text">
+      <ul>
+        <li>Basic Synthesis</li>
+        <li>Compound Effects</li>
+        <li>Maths &amp; Complex Things</li>
+      </ul>
+    </div>
+    <div class="slide">
+      <pre><code class="js">
+var osc = ac.createOscillator();
+osc.type="sawtooth";
+osc.connect(ac.destination);
+osc.start(0)
+osc.stop(ac.currentTime + 2);
+      </code>
+      <script type="text/wa-button">
+      var osc = wa.createOscillator();
+      osc.type="sawtooth";
+      osc.frequency.value = 110;
+      var osc2 = wa.createOscillator();
+      osc2.type="square";
+      osc2.frequency.value = 55;
+
+      var flt = wa.createBiquadFilter();
+      flt.type = 'lowpass';
+      flt.Q.value = 5;
+      flt.frequency.setValueAtTime(2000, wa.currentTime);
+      flt.frequency.linearRampToValueAtTime(220, wa.currentTime + 1);
+      var flt2 = wa.createBiquadFilter();
+      flt2.type = 'lowpass';
+      flt2.Q.value = 5;
+      flt2.frequency.setValueAtTime(2000, wa.currentTime);
+      flt2.frequency.linearRampToValueAtTime(220, wa.currentTime + 1);
+
+
+      osc.connect(flt);
+      osc2.connect(flt);
+      flt.connect(flt2);
+
+      flt2.connect(wa.destination);
+      flt2.connect(analyser);
+
+      osc.start(0)
+      osc.stop(wa.currentTime + 2);
+      osc2.start(0)
+      osc2.stop(wa.currentTime + 2);
+      </script>
+    </div>
+  </div>
+  <script src="js/highlight.pack.js"></script>
+  <script>hljs.initHighlightingOnLoad();</script>
+</body>
+</html>
